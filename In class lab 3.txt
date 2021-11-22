@@ -1,0 +1,70 @@
+                                                                      LINEAR REGRESSION
+
+
+Dependent Variable: "Happiness Rank" 
+Independent Variable:"GDP per capita" and "Social support" (2 features)
+
+
+
+
+
+//Import statements
+import org.apache.spark.sql.functions._
+import org.apache.spark.ml.feature.{VectorAssembler}
+import org.apache.spark.ml.Pipeline
+import org.apache.spark.ml.regression.{LinearRegression}
+import org.apache.spark.ml.tuning.{CrossValidator, CrossValidatorModel, ParamGridBuilder}
+import org.apache.spark.ml.evaluation.{RegressionEvaluator}
+import org.apache.spark.ml.param.ParamMap
+import org.apache.spark.sql.types.{DoubleType}
+
+
+//Loading our Dataset (happiness.csv) file
+val data = spark.read.format("csv").option("header", "true").load("hdfs://10.128.0.2:8020/BigData/happiness.csv")
+
+
+//selecting three columns (Happiness Rank, GDP per capita and Social support) from our dataset
+val rank_score = data.select(col("Happiness Rank").cast(DoubleType), col("GDP per capita").cast(DoubleType),col("Social support").cast(DoubleType))
+
+
+//split dataset to 80%, and 20% for training and test
+val Array(trainingData, testData) = rank_score.randomSplit(Array(0.8, 0.2), 1111)
+
+
+//setting InputCols(GDP per capita and Social support) and OutputCol(assembled-features)
+val assembler = new VectorAssembler().setInputCols(Array("GDP per capita","Social support")).setOutputCol("assembled-features")
+
+
+//setting LabelCol (Happiness Rank)
+val lr = new LinearRegression().setFeaturesCol("assembled-features").setLabelCol("Happiness Rank")
+
+
+//creating a pipeline, which do the features in VectorAssembler and takes the specified algorithm that is used(LINEAR REGRESSION)
+val pipeline = new Pipeline().setStages(Array(assembler, lr))
+
+
+//creating a evaluator, which gives accuracy of predection(r2)
+val evaluator = new RegressionEvaluator().setLabelCol("Happiness Rank").setPredictionCol("prediction").setMetricName("r2")
+
+
+//creating cross validator, which sets Estimator(pipeline) and sets Evaluator(evaluator)
+//set NumFolds (3), which divides dataset into 3 and takes 2/3 of data for training, which gives best accuracy
+val cross_validator = new CrossValidator().setEstimator(pipeline).setEvaluator(evaluator).setEstimatorParamMaps(new ParamGridBuilder().build).setNumFolds(3)
+
+
+//fitting our algorithm on (trainingData)
+val cvModel = cross_validator.fit(trainingData)
+
+
+//predicting the accuracy using (testData)
+val predictions = cvModel.transform(testData)
+
+
+//save the csv file which consists of col(Happiness Rank, GDP per capita, Social support and prediction)
+predictions.select(col("Happiness Rank"), col("GDP per capita"),col("Social support"), col("prediction")).write.format("csv").save("hdfs://10.128.0.2:8020/BigData/happiness/output4/")
+
+
+//getting the accuracy(r2)
+val r2 = evaluator.evaluate(predictions)
+
+println("r-squared on test data = " + r2)
